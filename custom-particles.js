@@ -4,27 +4,41 @@ class Particle {
         this.y = y;
         this.targetX = targetX;
         this.targetY = targetY;
-        this.size = 5;
+        this.size = Math.random() * 1 + 0.01; // Vary size between 2 and 5
         this.baseX = x;
         this.baseY = y;
         this.density = (Math.random() * 30) + 1;
         this.angle = Math.random() * 360;
         this.speed = 0.02 + Math.random() * 0.04;
+        this.color = this.generateColor();
+        this.opacity = 1;
+    }
+
+    generateColor() {
+        // Generate a color variation around turquoise
+        const hue = 170 + Math.random() * 40 - 20; // Turquoise hue is around 170
+        const saturation = 70 + Math.random() * 70; // 70-100%
+        const lightness = 50 + Math.random() * 70; // 50-70%
+        return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
     }
 
     update(progress, mouseX, mouseY) {
-        // Cursor interaction
-        let dx = mouseX - this.x;
-        let dy = mouseY - this.y;
-        let distance = Math.sqrt(dx * dx + dy * dy);
-        let forceDirectionX = dx / distance;
-        let forceDirectionY = dy / distance;
-        let maxDistance = 100;
-        let force = (maxDistance - distance) / maxDistance;
-        if (force < 0) force = 0;
-
-        let directionX = (forceDirectionX * force * this.density) * 0.6;
-        let directionY = (forceDirectionY * force * this.density) * 0.6;
+         // Cursor interaction
+         let dx = mouseX - this.x;
+         let dy = mouseY - this.y;
+         let distance = Math.sqrt(dx * dx + dy * dy);
+         let forceDirectionX = dx / distance;
+         let forceDirectionY = dy / distance;
+         let maxDistance = 50; // Reduced from 100 to 50
+         let force = (maxDistance - distance) / maxDistance;
+         if (force < 0) force = 0;
+ 
+         // Disappearing effect
+         const disappearRadius = 75; // Reduced from 150 to 75
+         this.opacity = distance < disappearRadius ? (distance / disappearRadius) ** 2 : 1;
+ 
+         let directionX = (forceDirectionX * force * this.density) * 0.6;
+         let directionY = (forceDirectionY * force * this.density) * 0.6;
 
         // Random movement
         this.angle += this.speed;
@@ -37,15 +51,37 @@ class Particle {
     }
 
     draw(ctx) {
-        ctx.fillStyle = 'turquoise';
+        ctx.save();
+        
+        // Glow effect
+        ctx.shadowBlur = 5;
+        ctx.shadowColor = this.color;
+        
+        // Main particle with opacity
+        ctx.globalAlpha = this.opacity;
+        ctx.fillStyle = this.color;
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size*0.5, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
         ctx.fill();
+
+        ctx.restore();
+    }
+
+    reset(x, y, targetX, targetY) {
+        // Reset particle properties
+        this.x = x;
+        this.y = y;
+        this.targetX = targetX;
+        this.targetY = targetY;
+        // ... reset other properties as needed
     }
 }
 
 class ParticleSystem {
     constructor(canvasId, imageUrl) {
+        this.offscreenCanvas = document.createElement('canvas');
+        this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+
         this.canvas = document.getElementById(canvasId);
         if (!this.canvas) {
             console.error('Canvas element not found:', canvasId);
@@ -54,9 +90,12 @@ class ParticleSystem {
         this.ctx = this.canvas.getContext('2d');
         this.particles = [];
         this.image = new Image();
+        
         this.image.onload = () => {
             console.log('Image loaded successfully');
             this.setupParticles();
+            this.isSetup = true;
+            requestAnimationFrame(this.animate);
         };
         this.image.onerror = (e) => console.error('Error loading image:', e);
         this.image.src = imageUrl;
@@ -76,6 +115,18 @@ class ParticleSystem {
             this.mouseX = event.x;
             this.mouseY = event.y;
         });
+        
+        this.opacity = 1;
+        this.particlePool = [];
+    }
+
+    getParticle(x, y, targetX, targetY) {
+        if (this.particlePool.length > 0) {
+            const particle = this.particlePool.pop();
+            particle.reset(x, y, targetX, targetY);
+            return particle;
+        }
+        return new Particle(x, y, targetX, targetY);
     }
 
     setupParticles() {
@@ -99,11 +150,11 @@ class ParticleSystem {
         const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
         const data = imageData.data;
 
-        for (let y = 0; y < tempCanvas.height; y += 5) {
-            for (let x = 0; x < tempCanvas.width; x += 5) {
+        for (let y = 0; y < tempCanvas.height; y += 7) {
+            for (let x = 0; x < tempCanvas.width; x += 7) {
                 const i = (y * tempCanvas.width + x) * 4;
                 if (data[i + 3] > 128) {
-                    const particle = new Particle(
+                    const particle = this.getParticle(
                         Math.random() * this.canvas.width,
                         Math.random() * this.canvas.height,
                         x,
@@ -113,42 +164,46 @@ class ParticleSystem {
                 }
             }
         }
-        console.log('Particles setup complete. Particle count:', this.particles.length);
-        this.isSetup = true;
-        requestAnimationFrame(this.animate);
 
-        for (let y = 0; y < tempCanvas.height; y += 5) {
-            for (let x = 0; x < tempCanvas.width; x += 5) {
-                const i = (y * tempCanvas.width + x) * 4;
-                if (data[i + 3] > 128) {
-                    const particle = new Particle(
-                        Math.random() * this.canvas.width,
-                        Math.random() * this.canvas.height,
-                        x,
-                        y
-                    );
-                    particle.baseX = particle.x;
-                    particle.baseY = particle.y;
-                    this.particles.push(particle);
-                }
-            }
-        }
+        console.log('Particles setup complete. Particle count:', this.particles.length);
+        
+        this.offscreenCanvas.width = this.canvas.width;
+        this.offscreenCanvas.height = this.canvas.height;
     }
 
     update(progress) {
         if (!this.isSetup) return;
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        this.particles.forEach(particle => {
-            particle.update(progress, this.mouseX, this.mouseY);
-            particle.draw(this.ctx);
-        });
+        
+        if (!this.isSetup) return;
+    
+    // Semi-transparent background for trail effect
+    this.offscreenCtx.fillStyle = 'rgba(0, 0, 0, 0.7)'; // Adjusted for better visibility of the disappearing effect
+    this.offscreenCtx.fillRect(0, 0, this.offscreenCanvas.width, this.offscreenCanvas.height);
+    
+    this.particles.forEach(particle => {
+        particle.update(progress, this.mouseX, this.mouseY);
+        particle.draw(this.offscreenCtx);
+    });
+
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.drawImage(this.offscreenCanvas, 0, 0);
     }
 
-   animate() {
-        const scrollProgress = Math.max(0, Math.min(1, window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)));
-        this.update(scrollProgress);
+    animate = (timestamp) => {
+        if (!this.lastTime) this.lastTime = timestamp;
+        const delta = timestamp - this.lastTime;
+        
+        if (delta > 1000 / 24) { // Changed from 30 to 60 FPS
+            const scrollProgress = Math.max(0, Math.min(1, window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)));
+            this.update(scrollProgress);
+            this.lastTime = timestamp;
+        }
+        
         requestAnimationFrame(this.animate);
     }
+    //Control Framerate to 30, only redraws when necessary
+
+    
     
 }
 
